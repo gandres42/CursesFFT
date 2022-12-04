@@ -31,6 +31,13 @@ typedef struct fft_wrapper
     int buffer_start;
 } fft_wrapper_t;
 
+typedef struct fft_settings
+{
+    int sample_rate;
+    int fft_size;
+    int refresh_rate;
+} fft_settings_t;
+
 int Freq2Index(double freq, int sample_rate, int fft_size)
 {
     return (int)(freq / (sample_rate / fft_size));
@@ -78,10 +85,11 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
         }
     }
 
-    if (timeSinceEpochMillisec() - wrapper->prev_refresh >= wrapper->graph_refresh_rate)
+    if (wrapper->graph_refresh_rate != 0 && timeSinceEpochMillisec() - wrapper->prev_refresh >= wrapper->graph_refresh_rate)
     {
         wclear(wrapper->win);
-        for (int x = 0; x < X_SIZE; x++)
+
+        for (int x = 0; x < min(X_SIZE, wrapper->fft_out_size); x++)
         {
             for (int y = 0; y < Y_BUFFER_SIZE; y++)
             {
@@ -100,7 +108,6 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
             }
         }
         wrefresh(wrapper->win);
-
         wrapper->prev_refresh = timeSinceEpochMillisec();
     }
 
@@ -112,13 +119,12 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
     wrapper->fft_size = fft_size;
     wrapper->fft_out_size = (fft_size / 2);
     wrapper->sample_rate = sample_rate;
-
     wrapper->input = (double *)fftw_malloc(sizeof(double) * fft_size);
     wrapper->output = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * ((fft_size / 2) + 1));
     wrapper->amp_output = (double *)malloc(sizeof(double) * ((fft_size / 2 )+ 1));
     wrapper->plan = fftw_plan_dft_r2c_1d(fft_size, wrapper->input, wrapper->output, 0);
-
     wrapper->buffer = (char **)malloc(sizeof(char *) * wrapper->fft_out_size);
+
     for (int i = 0; i < wrapper->fft_out_size; i++)
     {
         wrapper->buffer[i] = (char *)malloc(sizeof(char *) * Y_SIZE);
@@ -137,7 +143,7 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
     }
     for (int x = 0; x < wrapper->fft_out_size; x++)
     {
-        if (x % 64 == 0)
+        if (x % 32 == 0)
         {
             string num = to_string((int)Index2Freq(x, wrapper->sample_rate, wrapper->fft_size));
             for (int i = 0; i < num.length(); i++)
@@ -183,24 +189,144 @@ void kill_fft_wrapper(fft_wrapper * wrapper)
     free(wrapper);
 }
 
+void settings_menu(fft_wrapper * wrapper)
+{
+    int rig_refresh_rate = wrapper->graph_refresh_rate;
+    wrapper->graph_refresh_rate = 0;
+    WINDOW * win = newwin(7, 36, 9, 22);
+    keypad(win, TRUE);
+
+    int sizes[] = {64, 128, 256, 512, 1024, 2048};
+    int sample_rates[] = {44100, 48000, 96000, 128000};
+    int refresh_rates[] = {10, 30, 60, 120};
+
+    int size_index = 0;
+    for (int i = 0; i < 6; i++)
+    {
+        if (sizes[i] == wrapper->fft_size)
+        {
+            size_index = i;
+            break;
+        }
+    }
+
+    int sample_rate_index = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        if (sample_rates[i] == wrapper->sample_rate)
+        {
+            sample_rate_index = i;
+            break;
+        }
+    }
+
+    int refresh_rate_index = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        if (1000 / refresh_rates[i] == rig_refresh_rate)
+        {
+            refresh_rate_index = i;
+            break;
+        }
+    }
+
+    for (int x = 0; x < 36; x++)
+    {
+        for (int y = 0; y < 7; y++)
+        {
+            if (x == 0 || y == 0 || x == 35 || y == 6)
+            {
+                wattron(win, COLOR_PAIR(1));
+                mvwprintw(win, y, x, " ");
+            }
+            else
+            {
+                wattroff(win, COLOR_PAIR(1));
+                mvwprintw(win, y, x, " ");
+            }
+        }
+    }
+
+    wattroff(win, COLOR_PAIR(1));
+    mvwprintw(win, 2, 4, "Input Buffer Size:\t< %i >", sizes[size_index]);
+    mvwprintw(win, 3, 4, "Sample Rate:\t< %i >", sample_rates[sample_rate_index]);
+    mvwprintw(win, 4, 4, "Graph Refresh Rate:\t< %i >", refresh_rates[refresh_rate_index]);
+
+    wattron(win, COLOR_PAIR(1));
+    mvwprintw(win, 0, 14, "SETTINGS");
+    wrefresh(win);
+
+    fft_settings_t settings;
+    settings.fft_size = wrapper->fft_size;
+    settings.refresh_rate = wrapper->graph_refresh_rate;
+    settings.sample_rate = wrapper->sample_rate;
+
+
+
+    wgetch(win);
+    wrapper->graph_refresh_rate = rig_refresh_rate;
+    endwin();
+    return;
+}
+
 int main(int argc, char *argv[])
 {
     initscr();
     start_color();
     curs_set(0);
-    init_pair(1, COLOR_WHITE, COLOR_WHITE);
+    init_pair(1, COLOR_BLACK, COLOR_WHITE);
     Pa_Initialize();
 
     fft_wrapper_t *wrapper = (fft_wrapper_t *)malloc(sizeof(fft_wrapper_t));
-    init_fft_wrapper(wrapper, 44100, 512, 60);
+    init_fft_wrapper(wrapper, 44100, 256, 60);
     Pa_StartStream(wrapper->stream);
+    
     WINDOW * input_win = newwin(1, 80, Y_BUFFER_SIZE, 0);
+    keypad(input_win, TRUE);
+    mousemask(BUTTON1_CLICKED|BUTTON4_PRESSED|BUTTON2_PRESSED, NULL);
+    wprintw(input_win, "s: settings, ->: move window right, <-: move window left");
 
-    while (wgetch(input_win) != 27)
+    while (true)
     {
+        int int_getch = wgetch(input_win);
         wclear(input_win);
-        wprintw(input_win, "hello");
+
         wrefresh(input_win);
+
+        if (int_getch == 'q')
+        {
+            break;
+        }
+        else if (int_getch == 's')
+        {
+            settings_menu(wrapper);
+        }
+        else if (int_getch == KEY_RIGHT && wrapper->buffer_start < wrapper->fft_out_size - 80)
+        {
+            wrapper->buffer_start++;
+        }
+        else if (int_getch == KEY_LEFT && wrapper->buffer_start > 0)
+        {
+            wrapper->buffer_start--;
+        }
+        else if (int_getch == KEY_MOUSE)
+        {
+            MEVENT event;
+            if(getmouse(&event) == OK)
+			{
+				if(event.bstate & BUTTON5_PRESSED && wrapper->buffer_start < wrapper->fft_out_size - 80)
+                {
+                    wrapper->buffer_start++;
+				}
+                else if(event.bstate & BUTTON4_PRESSED && wrapper->buffer_start > 0)
+                {
+                    wrapper->buffer_start--;
+				}
+			}
+        }
+
+        wclear(input_win);
+        wprintw(input_win, "s: settings, ->: move window right, <-: move window left");
     }
     
     Pa_CloseStream(wrapper->stream);
