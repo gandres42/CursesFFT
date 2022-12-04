@@ -29,6 +29,7 @@ typedef struct fft_wrapper
     int graph_refresh_rate;
     uint64_t prev_refresh;
     int buffer_start;
+    WINDOW * settings_win;
 } fft_wrapper_t;
 
 typedef struct fft_settings
@@ -111,6 +112,13 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
         wrapper->prev_refresh = timeSinceEpochMillisec();
     }
 
+    if (wrapper->settings_win != nullptr)
+    {
+        // Pa_Terminate();
+        redrawwin(wrapper->settings_win);
+        wrefresh(wrapper->settings_win);   
+    }
+
     return 0;
 }
 
@@ -162,6 +170,7 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
     wrapper->graph_refresh_rate = 1000 / refresh_rate;
     wrapper->prev_refresh = timeSinceEpochMillisec();
     wrapper->buffer_start = 0;
+    wrapper->settings_win = nullptr;
 
     Pa_OpenDefaultStream(&wrapper->stream,
                         1,                 /* mono input channel */
@@ -227,6 +236,7 @@ void update_fft_wrapper(fft_wrapper * wrapper,  int sample_rate, int fft_size, i
     wrapper->graph_refresh_rate = 1000 / refresh_rate;
     wrapper->prev_refresh = timeSinceEpochMillisec();
     wrapper->buffer_start = 0;
+    wrapper->settings_win = nullptr;
 
     Pa_OpenDefaultStream(&wrapper->stream,
                         1,                 /* mono input channel */
@@ -253,8 +263,9 @@ void kill_fft_wrapper(fft_wrapper * wrapper)
 void settings_menu(fft_wrapper * wrapper)
 {
     int rig_refresh_rate = wrapper->graph_refresh_rate;
-    wrapper->graph_refresh_rate = 0;
+    // wrapper->graph_refresh_rate = 0;
     WINDOW * win = newwin(9, 36, 7, 22);
+    wrapper->settings_win = win;
     keypad(win, TRUE);
 
     int option_index = 0;
@@ -413,7 +424,8 @@ void settings_menu(fft_wrapper * wrapper)
         }
     }
 
-    wrapper->graph_refresh_rate = rig_refresh_rate;
+    // wrapper->graph_refresh_rate = rig_refresh_rate;
+    wrapper->settings_win = nullptr;
     delwin(win);
     return;
 }
