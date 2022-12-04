@@ -97,12 +97,18 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
                 
                 if (wrapper->buffer[x + wrapper->buffer_start][y] == 'X')
                 {
-                    wattron(wrapper->win, COLOR_PAIR(1));
+                    if (wrapper->settings_win != nullptr)
+                        wattron(wrapper->win, COLOR_PAIR(2));
+                    else
+                        wattron(wrapper->win, COLOR_PAIR(1));
                     mvwprintw(wrapper->win, Y_BUFFER_SIZE - 1 - y, x, " ");
                 }
                 else
                 {
-                    wattroff(wrapper->win, COLOR_PAIR(1));
+                    if (wrapper->settings_win != nullptr)
+                        wattron(wrapper->win, COLOR_PAIR(3));
+                    else
+                        wattron(wrapper->win, COLOR_PAIR(4));
                     mvwprintw(wrapper->win, Y_BUFFER_SIZE - 1 - y, x, "%c", wrapper->buffer[x + wrapper->buffer_start][y]);
                 }
                 
@@ -307,7 +313,7 @@ void settings_menu(fft_wrapper * wrapper)
     // Draw settings window
     int inout = 0;
 
-    while (inout != 'q')
+    while (inout != 's')
     {
         // frame
         for (int x = 0; x < 36; x++)
@@ -415,7 +421,7 @@ void settings_menu(fft_wrapper * wrapper)
         }
         else if (inout == '\n' && option_index == 3)
         {
-            inout = 'q';
+            inout = 's';
         }
         else if (inout == '\n' && option_index == 4)
         {
@@ -424,7 +430,6 @@ void settings_menu(fft_wrapper * wrapper)
         }
     }
 
-    // wrapper->graph_refresh_rate = rig_refresh_rate;
     wrapper->settings_win = nullptr;
     delwin(win);
     return;
@@ -436,6 +441,9 @@ int main(int argc, char *argv[])
     start_color();
     curs_set(0);
     init_pair(1, COLOR_BLACK, COLOR_WHITE);
+    init_pair(2, COLOR_BLACK, 0x8);
+    init_pair(3, 0x8, COLOR_BLACK);
+    init_pair(4, COLOR_WHITE, COLOR_BLACK);
     Pa_Initialize();
 
     fft_wrapper_t *wrapper = (fft_wrapper_t *)malloc(sizeof(fft_wrapper_t));
