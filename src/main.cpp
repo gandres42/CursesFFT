@@ -173,19 +173,80 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
                         wrapper);          /* pointer that will be passed to callback*/
 }
 
-void kill_fft_wrapper(fft_wrapper * wrapper)
+void update_fft_wrapper(fft_wrapper * wrapper,  int sample_rate, int fft_size, int refresh_rate)
 {
+    Pa_CloseStream(wrapper->stream);
     fftw_free(wrapper->input);
     fftw_free(wrapper->output);
     free(wrapper->amp_output);
-    Pa_CloseStream(wrapper->stream);
+    free(wrapper->buffer);
+
+    wrapper->fft_size = fft_size;
+    wrapper->fft_out_size = (fft_size / 2);
+    wrapper->sample_rate = sample_rate;
+    wrapper->input = (double *)fftw_malloc(sizeof(double) * fft_size);
+    wrapper->output = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * ((fft_size / 2) + 1));
+    wrapper->amp_output = (double *)malloc(sizeof(double) * ((fft_size / 2 )+ 1));
+    wrapper->plan = fftw_plan_dft_r2c_1d(fft_size, wrapper->input, wrapper->output, 0);
+    wrapper->buffer = (char **)malloc(sizeof(char *) * wrapper->fft_out_size);
 
     for (int i = 0; i < wrapper->fft_out_size; i++)
     {
-        free(wrapper->buffer);
+        wrapper->buffer[i] = (char *)malloc(sizeof(char *) * Y_SIZE);
     }
-    free(wrapper->buffer);
 
+    for (int i = 0; i < wrapper->fft_out_size; i++)
+    {
+        for (int j = 0; j < Y_SIZE; j++)
+        {
+            wrapper->buffer[i][j] = ' ';
+        }
+    }
+    for (int x = 0; x < wrapper->fft_out_size; x++)
+    {
+        wrapper->buffer[x][0] = '-';
+    }
+    for (int x = 0; x < wrapper->fft_out_size; x++)
+    {
+        if (x % 32 == 0)
+        {
+            string num = to_string((int)Index2Freq(x, wrapper->sample_rate, wrapper->fft_size));
+            for (int i = 0; i < num.length(); i++)
+            {
+                wrapper->buffer[x + i][0] = num.at(i);
+            }
+        }
+    }
+
+    for (int i = 0; i < fft_size; i++)
+    {
+        wrapper->input[i] = 0;
+    }
+
+    wrapper->win = newwin(Y_BUFFER_SIZE, 80, 0, 0);
+    wrapper->graph_refresh_rate = 1000 / refresh_rate;
+    wrapper->prev_refresh = timeSinceEpochMillisec();
+    wrapper->buffer_start = 0;
+
+    Pa_OpenDefaultStream(&wrapper->stream,
+                        1,                 /* mono input channel */
+                        0,                 /* no output */
+                        paFloat32,         /* 32 bit floating point output */
+                        sample_rate,       /* sample rate */
+                        fft_size,          /* frames per buffer, i.e. the number of sample frames that PortAudio will request from the callback. Many apps may want to use paFramesPerBufferUnspecified, which tells PortAudio to pick the best, possibly changing, buffer size.*/
+                        pa_fftw_callback,  /* callback function */
+                        wrapper);          /* pointer that will be passed to callback*/   
+    Pa_StartStream(wrapper->stream);
+}
+
+void kill_fft_wrapper(fft_wrapper * wrapper)
+{
+    Pa_CloseStream(wrapper->stream);
+    fftw_free(wrapper->input);
+    fftw_free(wrapper->output);
+    free(wrapper->amp_output);
+    free(wrapper->buffer);
+    delwin(wrapper->win);
     free(wrapper);
 }
 
@@ -193,8 +254,10 @@ void settings_menu(fft_wrapper * wrapper)
 {
     int rig_refresh_rate = wrapper->graph_refresh_rate;
     wrapper->graph_refresh_rate = 0;
-    WINDOW * win = newwin(7, 36, 9, 22);
+    WINDOW * win = newwin(9, 36, 7, 22);
     keypad(win, TRUE);
+
+    int option_index = 0;
 
     int sizes[] = {64, 128, 256, 512, 1024, 2048};
     int sample_rates[] = {44100, 48000, 96000, 128000};
@@ -230,42 +293,128 @@ void settings_menu(fft_wrapper * wrapper)
         }
     }
 
-    for (int x = 0; x < 36; x++)
+    // Draw settings window
+    int inout = 0;
+
+    while (inout != 'q')
     {
-        for (int y = 0; y < 7; y++)
+        // frame
+        for (int x = 0; x < 36; x++)
         {
-            if (x == 0 || y == 0 || x == 35 || y == 6)
+            for (int y = 0; y < 9; y++)
             {
-                wattron(win, COLOR_PAIR(1));
-                mvwprintw(win, y, x, " ");
+                if (x == 0 || y == 0 || x == 35 || y == 8)
+                {
+                    wattron(win, COLOR_PAIR(1));
+                    mvwprintw(win, y, x, " ");
+                }
+                else
+                {
+                    wattroff(win, COLOR_PAIR(1));
+                    mvwprintw(win, y, x, " ");
+                }
             }
-            else
+        }
+        wattron(win, COLOR_PAIR(1));
+        mvwprintw(win, 0, 14, "SETTINGS");
+        
+        // options
+        // input buffer size
+        wattroff(win, COLOR_PAIR(1));
+        mvwprintw(win, 2, 4, "Input Buffer Size:\t");
+        if (option_index == 0)
+            wattron(win, COLOR_PAIR(1));
+        else
+            wattroff(win, COLOR_PAIR(1));
+        wprintw(win, "< %i >", sizes[size_index]);
+        
+        // sample rate
+        wattroff(win, COLOR_PAIR(1));
+        mvwprintw(win, 3, 4, "Sample Rate:\t");
+        if (option_index == 1)
+            wattron(win, COLOR_PAIR(1));
+        else
+            wattroff(win, COLOR_PAIR(1));
+        wprintw(win, "< %i >", sample_rates[sample_rate_index]);
+        
+        // refresh rate
+        wattroff(win, COLOR_PAIR(1));
+        mvwprintw(win, 4, 4, "Graph Refresh Rate:\t");
+        if (option_index == 2)
+            wattron(win, COLOR_PAIR(1));
+        else
+            wattroff(win, COLOR_PAIR(1));
+        wprintw(win, "< %i >", refresh_rates[refresh_rate_index]);
+
+        // cancel
+        if (option_index == 3)
+            wattron(win, COLOR_PAIR(1));
+        else
+            wattroff(win, COLOR_PAIR(1));
+        mvwprintw(win, 6, 7, "Cancel");
+
+        // apply settings
+        if (option_index == 4)
+            wattron(win, COLOR_PAIR(1));
+        else
+            wattroff(win, COLOR_PAIR(1));
+        mvwprintw(win, 6, 23, "Apply");
+
+        wrefresh(win);
+
+        inout = wgetch(win);
+
+        if (inout == KEY_DOWN && option_index < 4)
+        {
+            option_index++;
+        }
+        else if (inout == KEY_UP && option_index > 0)
+        {
+            option_index--;
+        }
+        else if (inout == KEY_RIGHT)
+        {
+            if (option_index == 0 && size_index < 5)
             {
-                wattroff(win, COLOR_PAIR(1));
-                mvwprintw(win, y, x, " ");
+                size_index++;
             }
+            else if (option_index == 1 && sample_rate_index < 3)
+            {
+                sample_rate_index++;
+            }
+            else if (option_index == 2 && refresh_rate_index < 3)
+            {
+                refresh_rate_index++;
+            }
+        }
+        else if (inout == KEY_LEFT)
+        {
+            if (option_index == 0 && size_index > 0)
+            {
+                size_index--;
+            }
+            else if (option_index == 1 && sample_rate_index > 0)
+            {
+                sample_rate_index--;
+            }
+            else if (option_index == 2 && refresh_rate_index > 0)
+            {
+                refresh_rate_index--;
+            }
+        }
+        else if (inout == '\n' && option_index == 3)
+        {
+            inout = 'q';
+        }
+        else if (inout == '\n' && option_index == 4)
+        {
+            update_fft_wrapper(wrapper, sample_rates[sample_rate_index], sizes[size_index], refresh_rates[refresh_rate_index]);
+            return;
         }
     }
 
-    wattroff(win, COLOR_PAIR(1));
-    mvwprintw(win, 2, 4, "Input Buffer Size:\t< %i >", sizes[size_index]);
-    mvwprintw(win, 3, 4, "Sample Rate:\t< %i >", sample_rates[sample_rate_index]);
-    mvwprintw(win, 4, 4, "Graph Refresh Rate:\t< %i >", refresh_rates[refresh_rate_index]);
-
-    wattron(win, COLOR_PAIR(1));
-    mvwprintw(win, 0, 14, "SETTINGS");
-    wrefresh(win);
-
-    fft_settings_t settings;
-    settings.fft_size = wrapper->fft_size;
-    settings.refresh_rate = wrapper->graph_refresh_rate;
-    settings.sample_rate = wrapper->sample_rate;
-
-
-
-    wgetch(win);
     wrapper->graph_refresh_rate = rig_refresh_rate;
-    endwin();
+    delwin(win);
     return;
 }
 
