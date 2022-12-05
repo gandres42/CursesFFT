@@ -1,5 +1,4 @@
 #include <portaudio.h>
-#include <sliding_dft.hpp>
 #include <complex>
 #include <iostream>
 #include <ncurses.h>
@@ -30,14 +29,8 @@ typedef struct fft_wrapper
     uint64_t prev_refresh;
     int buffer_start;
     WINDOW * settings_win;
+    int combined_bins;
 } fft_wrapper_t;
-
-typedef struct fft_settings
-{
-    int sample_rate;
-    int fft_size;
-    int refresh_rate;
-} fft_settings_t;
 
 int Freq2Index(double freq, int sample_rate, int fft_size)
 {
@@ -66,12 +59,19 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
 
     fftw_execute(wrapper->plan);
 
-    for (int i = 0; i < wrapper->fft_out_size; i++)
+    for (int i = 0; i < wrapper->fft_out_size / wrapper->combined_bins; i++)
     {
-        wrapper->amp_output[i] = sqrt(pow(wrapper->output[i][0], 2) + pow(wrapper->output[i][1], 2)) * (i/(double)(i + (wrapper->fft_size / 4)));
+        double average = 0;
+        for (int j = 0; j < wrapper->combined_bins; j++)
+        {
+            int x = (i * wrapper->combined_bins) + j;
+            average += sqrt(pow(wrapper->output[x][0], 2) + pow(wrapper->output[x][1], 2)) * (x/(double)(x + (wrapper->fft_size / 2)));
+        }
+        average = average / wrapper->combined_bins;
+        wrapper->amp_output[i] = average;
     }
 
-    for (int x = 0; x < wrapper->fft_out_size; x++)
+    for (int x = 0; x < wrapper->fft_out_size / wrapper->combined_bins; x++)
     {
         for (int y = 1; y < Y_BUFFER_SIZE; y++)
         {
@@ -90,7 +90,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
     {
         wclear(wrapper->win);
 
-        for (int x = 0; x < min(X_SIZE, wrapper->fft_out_size); x++)
+        for (int x = 0; x < min(X_SIZE, wrapper->fft_out_size / wrapper->combined_bins); x++)
         {
             for (int y = 0; y < Y_BUFFER_SIZE; y++)
             {
@@ -120,7 +120,6 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
 
     if (wrapper->settings_win != nullptr)
     {
-        // Pa_Terminate();
         redrawwin(wrapper->settings_win);
         wrefresh(wrapper->settings_win);   
     }
@@ -128,34 +127,35 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
     return 0;
 }
 
-void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int refresh_rate)
+void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int refresh_rate, int combined_bins)
 {
     wrapper->fft_size = fft_size;
-    wrapper->fft_out_size = (fft_size / 2);
+    wrapper->fft_out_size = (fft_size / 2) + 1;
     wrapper->sample_rate = sample_rate;
     wrapper->input = (double *)fftw_malloc(sizeof(double) * fft_size);
-    wrapper->output = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * ((fft_size / 2) + 1));
-    wrapper->amp_output = (double *)malloc(sizeof(double) * ((fft_size / 2 )+ 1));
+    wrapper->output = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * wrapper->fft_out_size);
     wrapper->plan = fftw_plan_dft_r2c_1d(fft_size, wrapper->input, wrapper->output, 0);
-    wrapper->buffer = (char **)malloc(sizeof(char *) * wrapper->fft_out_size);
+    wrapper->amp_output = (double *)malloc(sizeof(double) *  (wrapper->fft_out_size / combined_bins));
+    wrapper->combined_bins = combined_bins;
 
-    for (int i = 0; i < wrapper->fft_out_size; i++)
+    // initialize video buffer
+    wrapper->buffer = (char **)malloc(sizeof(char *) * ( wrapper->fft_out_size) / combined_bins);
+    for (int i = 0; i < wrapper->fft_out_size / combined_bins; i++)
     {
         wrapper->buffer[i] = (char *)malloc(sizeof(char *) * Y_SIZE);
     }
-
-    for (int i = 0; i < wrapper->fft_out_size; i++)
+    for (int i = 0; i < wrapper->fft_out_size / combined_bins; i++)
     {
         for (int j = 0; j < Y_SIZE; j++)
         {
             wrapper->buffer[i][j] = ' ';
         }
     }
-    for (int x = 0; x < wrapper->fft_out_size; x++)
+    for (int x = 0; x < wrapper->fft_out_size / combined_bins; x++)
     {
         wrapper->buffer[x][0] = '-';
     }
-    for (int x = 0; x < wrapper->fft_out_size; x++)
+    for (int x = 0; x < wrapper->fft_out_size / combined_bins; x++)
     {
         if (x % 32 == 0)
         {
@@ -167,6 +167,7 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
         }
     }
 
+    // zero out input
     for (int i = 0; i < fft_size; i++)
     {
         wrapper->input[i] = 0;
@@ -269,7 +270,8 @@ void kill_fft_wrapper(fft_wrapper * wrapper)
 void settings_menu(fft_wrapper * wrapper)
 {
     int rig_refresh_rate = wrapper->graph_refresh_rate;
-    // wrapper->graph_refresh_rate = 0;
+    wrapper->graph_refresh_rate = 100;
+
     WINDOW * win = newwin(9, 36, 7, 22);
     wrapper->settings_win = win;
     keypad(win, TRUE);
@@ -431,6 +433,7 @@ void settings_menu(fft_wrapper * wrapper)
     }
 
     wrapper->settings_win = nullptr;
+    wrapper->graph_refresh_rate = rig_refresh_rate;
     delwin(win);
     return;
 }
@@ -447,13 +450,14 @@ int main(int argc, char *argv[])
     Pa_Initialize();
 
     fft_wrapper_t *wrapper = (fft_wrapper_t *)malloc(sizeof(fft_wrapper_t));
-    init_fft_wrapper(wrapper, 44100, 256, 60);
+    init_fft_wrapper(wrapper, 44100, 256, 60, 2);
     Pa_StartStream(wrapper->stream);
     
     WINDOW * input_win = newwin(1, 80, Y_BUFFER_SIZE, 0);
     keypad(input_win, TRUE);
-    mousemask(BUTTON1_CLICKED|BUTTON4_PRESSED|BUTTON2_PRESSED, NULL);
-    wprintw(input_win, "s: settings, ->: move window right, <-: move window left");
+    mousemask(BUTTON4_PRESSED|BUTTON5_PRESSED, NULL);
+    mouseinterval(0);
+    wprintw(input_win, "s: settings, left/right arrows | scroll: move window");
 
     while (true)
     {
@@ -470,7 +474,7 @@ int main(int argc, char *argv[])
         {
             settings_menu(wrapper);
         }
-        else if (int_getch == KEY_RIGHT && wrapper->buffer_start < wrapper->fft_out_size - 80)
+        else if (int_getch == KEY_RIGHT && wrapper->buffer_start < (wrapper->fft_out_size / wrapper->combined_bins) - 80)
         {
             wrapper->buffer_start++;
         }
@@ -483,7 +487,7 @@ int main(int argc, char *argv[])
             MEVENT event;
             if(getmouse(&event) == OK)
 			{
-				if(event.bstate & BUTTON5_PRESSED && wrapper->buffer_start < wrapper->fft_out_size - 80)
+				if(event.bstate & BUTTON5_PRESSED && wrapper->buffer_start < (wrapper->fft_out_size / wrapper->combined_bins) - 80)
                 {
                     wrapper->buffer_start++;
 				}
@@ -495,10 +499,10 @@ int main(int argc, char *argv[])
         }
 
         wclear(input_win);
-        wprintw(input_win, "s: settings, ->: move window right, <-: move window left");
+        wprintw(input_win, "s: settings, left/right arrows | scroll: move window");
     }
-    
-    Pa_CloseStream(wrapper->stream);
+    kill_fft_wrapper(wrapper);
+    // Pa_CloseStream(wrapper->stream);
     Pa_Terminate();
 
     endwin();
