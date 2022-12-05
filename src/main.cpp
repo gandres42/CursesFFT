@@ -303,7 +303,7 @@ void settings_menu(fft_wrapper * wrapper)
     vector<int> sizes = {64, 128, 256, 512, 1024, 2048};
     vector<int> sample_rates = {44100, 48000, 96000, 128000};
     vector<int> refresh_rates = {10, 30, 60, 120};
-    vector<int> combined_bins = {1, 2, 4, 6, 8};
+    vector<int> combined_bins = {1, 2, 4, 6, 8, 12};
 
     int size_index = 0;
     for (int i = 0; i < sizes.size(); i++)
@@ -378,7 +378,16 @@ void settings_menu(fft_wrapper * wrapper)
             wattron(win, COLOR_PAIR(1));
         else
             wattroff(win, COLOR_PAIR(1));
-        wprintw(win, "< %i >", sizes[size_index]);
+
+        if (size_index != 0)
+            wprintw(win, "< ");
+        else
+            wprintw(win, "  ");
+        wprintw(win, "%i", sizes[size_index]);
+        if (size_index != sizes.size() - 1)
+            wprintw(win, " >");
+        else
+            wprintw(win, "  ");
         
         // sample rate
         wattroff(win, COLOR_PAIR(1));
@@ -387,7 +396,16 @@ void settings_menu(fft_wrapper * wrapper)
             wattron(win, COLOR_PAIR(1));
         else
             wattroff(win, COLOR_PAIR(1));
-        wprintw(win, "< %i >", sample_rates[sample_rate_index]);
+        
+        if (sample_rate_index != 0)
+            wprintw(win, "< ");
+        else
+            wprintw(win, "  ");
+        wprintw(win, "%i", sample_rates[sample_rate_index]);
+        if (sample_rate_index != sample_rates.size() - 1)
+            wprintw(win, " >");
+        else
+            wprintw(win, "  ");
         
         // refresh rate
         wattroff(win, COLOR_PAIR(1));
@@ -396,7 +414,16 @@ void settings_menu(fft_wrapper * wrapper)
             wattron(win, COLOR_PAIR(1));
         else
             wattroff(win, COLOR_PAIR(1));
-        wprintw(win, "< %i >", refresh_rates[refresh_rate_index]);
+        
+        if (refresh_rate_index != 0)
+            wprintw(win, "< ");
+        else
+            wprintw(win, "  ");
+        wprintw(win, "%i", refresh_rates[refresh_rate_index]);
+        if (refresh_rate_index != refresh_rates.size() - 1)
+            wprintw(win, " >");
+        else
+            wprintw(win, "  ");
 
         // combined bins
         wattroff(win, COLOR_PAIR(1));
@@ -405,7 +432,16 @@ void settings_menu(fft_wrapper * wrapper)
             wattron(win, COLOR_PAIR(1));
         else
             wattroff(win, COLOR_PAIR(1));
-        wprintw(win, "< %i >", combined_bins[combined_bins_index]);
+
+        if (combined_bins_index != 0)
+            wprintw(win, "< ");
+        else
+            wprintw(win, "  ");
+        wprintw(win, "%i", combined_bins[combined_bins_index]);
+        if (combined_bins_index != combined_bins.size() - 1)
+            wprintw(win, " >");
+        else
+            wprintw(win, "  ");
 
         // cancel
         if (option_index == 4)
