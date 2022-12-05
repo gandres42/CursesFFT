@@ -162,7 +162,8 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
             string num = to_string((int)Index2Freq(x, wrapper->sample_rate, wrapper->fft_size));
             for (int i = 0; i < num.length(); i++)
             {
-                wrapper->buffer[x + i][0] = num.at(i);
+                if (x + i < wrapper->fft_out_size)
+                    wrapper->buffer[x + i][0] = num.at(i);
             }
         }
     }
@@ -450,7 +451,7 @@ int main(int argc, char *argv[])
     Pa_Initialize();
 
     fft_wrapper_t *wrapper = (fft_wrapper_t *)malloc(sizeof(fft_wrapper_t));
-    init_fft_wrapper(wrapper, 44100, 256, 60, 2);
+    init_fft_wrapper(wrapper, 44100, 256, 60, 1);
     Pa_StartStream(wrapper->stream);
     
     WINDOW * input_win = newwin(1, 80, Y_BUFFER_SIZE, 0);
@@ -501,9 +502,8 @@ int main(int argc, char *argv[])
         wclear(input_win);
         wprintw(input_win, "s: settings, left/right arrows | scroll: move window");
     }
-    kill_fft_wrapper(wrapper);
-    // Pa_CloseStream(wrapper->stream);
-    Pa_Terminate();
 
+    kill_fft_wrapper(wrapper);
+    Pa_Terminate();
     endwin();
 }
