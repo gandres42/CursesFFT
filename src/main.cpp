@@ -31,6 +31,7 @@ typedef struct fft_wrapper
     int buffer_start;
     WINDOW * settings_win;
     int combined_bins;
+    int buffer_size;
 } fft_wrapper_t;
 
 int Freq2Index(double freq, int sample_rate, int fft_size)
@@ -91,7 +92,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
     {
         wclear(wrapper->win);
 
-        for (int x = 0; x < min(X_SIZE, wrapper->fft_out_size / wrapper->combined_bins); x++)
+        for (int x = 0; x < min(X_SIZE, wrapper->buffer_size); x++)
         {
             for (int y = 0; y < Y_BUFFER_SIZE; y++)
             {
@@ -140,33 +141,41 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
     wrapper->combined_bins = combined_bins;
 
     // initialize video buffer
-    wrapper->buffer = (char **)malloc(sizeof(char *) * ( wrapper->fft_out_size) / combined_bins);
-    for (int i = 0; i < wrapper->fft_out_size / combined_bins; i++)
+    wrapper->buffer_size = (wrapper->fft_out_size / combined_bins) + to_string((int)Index2Freq(wrapper->fft_out_size, wrapper->sample_rate, wrapper->fft_size)).length() - 1;
+    wrapper->buffer = (char **)malloc(sizeof(char *) * wrapper->buffer_size);
+    for (int i = 0; i < wrapper->buffer_size; i++)
     {
         wrapper->buffer[i] = (char *)malloc(sizeof(char *) * Y_SIZE);
     }
-    for (int i = 0; i < wrapper->fft_out_size / combined_bins; i++)
+
+    for (int i = 0; i < wrapper->buffer_size; i++)
     {
         for (int j = 0; j < Y_SIZE; j++)
         {
             wrapper->buffer[i][j] = ' ';
         }
     }
-    for (int x = 0; x < wrapper->fft_out_size / combined_bins; x++)
+    for (int x = 0; x < wrapper->buffer_size; x++)
     {
         wrapper->buffer[x][0] = '-';
     }
-    for (int x = 0; x < wrapper->fft_out_size / combined_bins; x++)
+    for (int x = 0; x < wrapper->buffer_size - 32; x++)
     {
         if (x % 32 == 0)
         {
             string num = to_string((int)Index2Freq(x * wrapper->combined_bins, wrapper->sample_rate, wrapper->fft_size));
             for (int i = 0; i < num.length(); i++)
             {
-                if (x + i < wrapper->fft_out_size)
+                if (x + i < wrapper->buffer_size)
                     wrapper->buffer[x + i][0] = num.at(i);
             }
         }
+    }
+
+    string num = to_string((int)Index2Freq(wrapper->fft_out_size, wrapper->sample_rate, wrapper->fft_size));
+    for (int i = 0; i < num.length(); i++)
+    {
+        wrapper->buffer[(wrapper->buffer_size - num.length()) + i][0] = num.at(i);
     }
 
     // zero out input
@@ -206,36 +215,44 @@ void update_fft_wrapper(fft_wrapper * wrapper,  int sample_rate, int fft_size, i
     wrapper->output = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * ((fft_size / 2) + 1));
     wrapper->amp_output = (double *)malloc(sizeof(double) * ((fft_size / 2 )+ 1));
     wrapper->plan = fftw_plan_dft_r2c_1d(fft_size, wrapper->input, wrapper->output, 0);
-    wrapper->buffer = (char **)malloc(sizeof(char *) * wrapper->fft_out_size);
     wrapper->combined_bins = combined_bins;
-
-    for (int i = 0; i < wrapper->fft_out_size; i++)
+    wrapper->buffer_size = (wrapper->fft_out_size / combined_bins) + to_string((int)Index2Freq(wrapper->fft_out_size, wrapper->sample_rate, wrapper->fft_size)).length() - 1;
+    wrapper->buffer = (char **)malloc(sizeof(char *) * wrapper->buffer_size);
+    
+    for (int i = 0; i < wrapper->buffer_size; i++)
     {
         wrapper->buffer[i] = (char *)malloc(sizeof(char *) * Y_SIZE);
     }
-
-    for (int i = 0; i < wrapper->fft_out_size; i++)
+    for (int i = 0; i < wrapper->buffer_size; i++)
     {
         for (int j = 0; j < Y_SIZE; j++)
         {
             wrapper->buffer[i][j] = ' ';
         }
     }
-    for (int x = 0; x < wrapper->fft_out_size; x++)
+    for (int x = 0; x < wrapper->buffer_size; x++)
     {
         wrapper->buffer[x][0] = '-';
     }
-    for (int x = 0; x < wrapper->fft_out_size; x++)
+    for (int x = 0; x < wrapper->buffer_size - 1; x++)
     {
         if (x % 32 == 0)
         {
             string num = to_string((int)Index2Freq(x * wrapper->combined_bins, wrapper->sample_rate, wrapper->fft_size));
             for (int i = 0; i < num.length(); i++)
             {
-                wrapper->buffer[x + i][0] = num.at(i);
+                if (x + i < wrapper->buffer_size)
+                    wrapper->buffer[x + i][0] = num.at(i);
             }
         }
     }
+
+    string num = to_string((int)Index2Freq(wrapper->fft_out_size, wrapper->sample_rate, wrapper->fft_size));
+    for (int i = 0; i < num.length(); i++)
+    {
+        wrapper->buffer[(wrapper->buffer_size - num.length()) + i][0] = num.at(i);
+    }
+
 
     for (int i = 0; i < fft_size; i++)
     {
@@ -507,7 +524,7 @@ int main(int argc, char *argv[])
         {
             settings_menu(wrapper);
         }
-        else if (int_getch == KEY_RIGHT && wrapper->buffer_start < (wrapper->fft_out_size / wrapper->combined_bins) - 80)
+        else if (int_getch == KEY_RIGHT && wrapper->buffer_start < wrapper->buffer_size - 80)
         {
             wrapper->buffer_start++;
         }
@@ -520,7 +537,7 @@ int main(int argc, char *argv[])
             MEVENT event;
             if(getmouse(&event) == OK)
 			{
-				if(event.bstate & BUTTON5_PRESSED && wrapper->buffer_start < (wrapper->fft_out_size / wrapper->combined_bins) - 80)
+				if(event.bstate & BUTTON5_PRESSED && wrapper->buffer_start < wrapper->buffer_size - 80)
                 {
                     wrapper->buffer_start++;
 				}
