@@ -5,6 +5,7 @@
 #include <math.h>
 #include <fftw3.h>
 #include <chrono>
+#include <vector>
 
 #define FFT_HEIGHT 20
 #define Y_BUFFER_SIZE 23
@@ -159,7 +160,7 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
     {
         if (x % 32 == 0)
         {
-            string num = to_string((int)Index2Freq(x, wrapper->sample_rate, wrapper->fft_size));
+            string num = to_string((int)Index2Freq(x * wrapper->combined_bins, wrapper->sample_rate, wrapper->fft_size));
             for (int i = 0; i < num.length(); i++)
             {
                 if (x + i < wrapper->fft_out_size)
@@ -190,7 +191,7 @@ void init_fft_wrapper(fft_wrapper * wrapper, int sample_rate, int fft_size, int 
                         wrapper);          /* pointer that will be passed to callback*/
 }
 
-void update_fft_wrapper(fft_wrapper * wrapper,  int sample_rate, int fft_size, int refresh_rate)
+void update_fft_wrapper(fft_wrapper * wrapper,  int sample_rate, int fft_size, int refresh_rate, int combined_bins)
 {
     Pa_CloseStream(wrapper->stream);
     fftw_free(wrapper->input);
@@ -206,6 +207,7 @@ void update_fft_wrapper(fft_wrapper * wrapper,  int sample_rate, int fft_size, i
     wrapper->amp_output = (double *)malloc(sizeof(double) * ((fft_size / 2 )+ 1));
     wrapper->plan = fftw_plan_dft_r2c_1d(fft_size, wrapper->input, wrapper->output, 0);
     wrapper->buffer = (char **)malloc(sizeof(char *) * wrapper->fft_out_size);
+    wrapper->combined_bins = combined_bins;
 
     for (int i = 0; i < wrapper->fft_out_size; i++)
     {
@@ -227,7 +229,7 @@ void update_fft_wrapper(fft_wrapper * wrapper,  int sample_rate, int fft_size, i
     {
         if (x % 32 == 0)
         {
-            string num = to_string((int)Index2Freq(x, wrapper->sample_rate, wrapper->fft_size));
+            string num = to_string((int)Index2Freq(x * wrapper->combined_bins, wrapper->sample_rate, wrapper->fft_size));
             for (int i = 0; i < num.length(); i++)
             {
                 wrapper->buffer[x + i][0] = num.at(i);
@@ -272,19 +274,22 @@ void settings_menu(fft_wrapper * wrapper)
 {
     int rig_refresh_rate = wrapper->graph_refresh_rate;
     wrapper->graph_refresh_rate = 100;
+    int win_x = 36;
+    int win_y = 10;
 
-    WINDOW * win = newwin(9, 36, 7, 22);
+    WINDOW * win = newwin(win_y, win_x, 6, 22);
     wrapper->settings_win = win;
     keypad(win, TRUE);
 
     int option_index = 0;
 
-    int sizes[] = {64, 128, 256, 512, 1024, 2048};
-    int sample_rates[] = {44100, 48000, 96000, 128000};
-    int refresh_rates[] = {10, 30, 60, 120};
+    vector<int> sizes = {64, 128, 256, 512, 1024, 2048};
+    vector<int> sample_rates = {44100, 48000, 96000, 128000};
+    vector<int> refresh_rates = {10, 30, 60, 120};
+    vector<int> combined_bins = {1, 2, 4, 6, 8};
 
     int size_index = 0;
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < sizes.size(); i++)
     {
         if (sizes[i] == wrapper->fft_size)
         {
@@ -294,7 +299,7 @@ void settings_menu(fft_wrapper * wrapper)
     }
 
     int sample_rate_index = 0;
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < sample_rates.size(); i++)
     {
         if (sample_rates[i] == wrapper->sample_rate)
         {
@@ -304,11 +309,21 @@ void settings_menu(fft_wrapper * wrapper)
     }
 
     int refresh_rate_index = 0;
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < refresh_rates.size(); i++)
     {
         if (1000 / refresh_rates[i] == rig_refresh_rate)
         {
             refresh_rate_index = i;
+            break;
+        }
+    }
+
+    int combined_bins_index = 0;
+    for (int i = 0; i < combined_bins.size(); i++)
+    {
+        if (combined_bins[i] == wrapper->combined_bins)
+        {
+            combined_bins_index = i;
             break;
         }
     }
@@ -319,11 +334,11 @@ void settings_menu(fft_wrapper * wrapper)
     while (inout != 's')
     {
         // frame
-        for (int x = 0; x < 36; x++)
+        for (int x = 0; x < win_x; x++)
         {
-            for (int y = 0; y < 9; y++)
+            for (int y = 0; y < win_y; y++)
             {
-                if (x == 0 || y == 0 || x == 35 || y == 8)
+                if (x == 0 || y == 0 || x == win_x - 1 || y == win_y - 1)
                 {
                     wattron(win, COLOR_PAIR(1));
                     mvwprintw(win, y, x, " ");
@@ -366,25 +381,34 @@ void settings_menu(fft_wrapper * wrapper)
             wattroff(win, COLOR_PAIR(1));
         wprintw(win, "< %i >", refresh_rates[refresh_rate_index]);
 
-        // cancel
+        // combined bins
+        wattroff(win, COLOR_PAIR(1));
+        mvwprintw(win, 5, 4, "Combined Bins:\t");
         if (option_index == 3)
             wattron(win, COLOR_PAIR(1));
         else
             wattroff(win, COLOR_PAIR(1));
-        mvwprintw(win, 6, 7, "Cancel");
+        wprintw(win, "< %i >", combined_bins[combined_bins_index]);
 
-        // apply settings
+        // cancel
         if (option_index == 4)
             wattron(win, COLOR_PAIR(1));
         else
             wattroff(win, COLOR_PAIR(1));
-        mvwprintw(win, 6, 23, "Apply");
+        mvwprintw(win, 7, 7, "Cancel");
+
+        // apply settings
+        if (option_index == 5)
+            wattron(win, COLOR_PAIR(1));
+        else
+            wattroff(win, COLOR_PAIR(1));
+        mvwprintw(win, 7, 23, "Apply");
 
         wrefresh(win);
 
         inout = wgetch(win);
 
-        if (inout == KEY_DOWN && option_index < 4)
+        if (inout == KEY_DOWN && option_index < 5)
         {
             option_index++;
         }
@@ -406,6 +430,10 @@ void settings_menu(fft_wrapper * wrapper)
             {
                 refresh_rate_index++;
             }
+            else if (option_index == 3 && combined_bins_index < combined_bins.size() - 1)
+            {
+                combined_bins_index++;
+            }
         }
         else if (inout == KEY_LEFT)
         {
@@ -421,14 +449,18 @@ void settings_menu(fft_wrapper * wrapper)
             {
                 refresh_rate_index--;
             }
-        }
-        else if (inout == '\n' && option_index == 3)
-        {
-            inout = 's';
+            else if (option_index == 3 && combined_bins_index > 0)
+            {
+                combined_bins_index--;
+            }
         }
         else if (inout == '\n' && option_index == 4)
         {
-            update_fft_wrapper(wrapper, sample_rates[sample_rate_index], sizes[size_index], refresh_rates[refresh_rate_index]);
+            inout = 's';
+        }
+        else if (inout == '\n' && option_index == 5)
+        {
+            update_fft_wrapper(wrapper, sample_rates[sample_rate_index], sizes[size_index], refresh_rates[refresh_rate_index], combined_bins[combined_bins_index]);
             return;
         }
     }
