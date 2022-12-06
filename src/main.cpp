@@ -67,7 +67,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
         for (int j = 0; j < wrapper->combined_bins; j++)
         {
             int x = (i * wrapper->combined_bins) + j;
-            average += sqrt(pow(wrapper->output[x][0], 2) + pow(wrapper->output[x][1], 2)) * (x/(double)(x + (wrapper->fft_size / 8)));
+            average += sqrt(pow(wrapper->output[x][0], 2) + pow(wrapper->output[x][1], 2)) * (x/(double)(x + (wrapper->fft_size / 6)));
         }
         average = average / wrapper->combined_bins;
         wrapper->amp_output[i] = average;
@@ -77,7 +77,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
     {
         for (int y = 1; y < Y_BUFFER_SIZE; y++)
         {
-            if (y < (int)(wrapper->amp_output[x] / .35))
+            if (y < (int)(wrapper->amp_output[x] / .5))
             {
                 wrapper->buffer[x][y] = 'X';
             }
@@ -90,7 +90,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
 
     if (wrapper->graph_refresh_rate != 0 && timeSinceEpochMillisec() - wrapper->prev_refresh >= wrapper->graph_refresh_rate)
     {
-        wclear(wrapper->win);
+        // wclear(wrapper->win);
 
         for (int x = 0; x < min(X_SIZE, wrapper->buffer_size); x++)
         {
@@ -536,7 +536,7 @@ int main(int argc, char *argv[])
     Pa_Initialize();
 
     fft_wrapper_t *wrapper = (fft_wrapper_t *)malloc(sizeof(fft_wrapper_t));
-    init_fft_wrapper(wrapper, 44100, 256, 60, 1);
+    init_fft_wrapper(wrapper, 44100, 512, 60, 1);
     Pa_StartStream(wrapper->stream);
     
     WINDOW * input_win = newwin(1, 80, Y_BUFFER_SIZE, 0);
