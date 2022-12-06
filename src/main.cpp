@@ -67,7 +67,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
         for (int j = 0; j < wrapper->combined_bins; j++)
         {
             int x = (i * wrapper->combined_bins) + j;
-            average += sqrt(pow(wrapper->output[x][0], 2) + pow(wrapper->output[x][1], 2)) * (x/(double)(x + (wrapper->fft_size / 2)));
+            average += sqrt(pow(wrapper->output[x][0], 2) + pow(wrapper->output[x][1], 2)) * (x/(double)(x + (wrapper->fft_size / 8)));
         }
         average = average / wrapper->combined_bins;
         wrapper->amp_output[i] = average;
@@ -77,7 +77,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
     {
         for (int y = 1; y < Y_BUFFER_SIZE; y++)
         {
-            if (y < (int)(wrapper->amp_output[x] / .25))
+            if (y < (int)(wrapper->amp_output[x] / .35))
             {
                 wrapper->buffer[x][y] = 'X';
             }
