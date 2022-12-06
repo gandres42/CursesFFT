@@ -90,7 +90,7 @@ int pa_fftw_callback(const void *inputBuffer, void *outputBuffer, unsigned long 
 
     if (wrapper->graph_refresh_rate != 0 && timeSinceEpochMillisec() - wrapper->prev_refresh >= wrapper->graph_refresh_rate)
     {
-        // wclear(wrapper->win);
+        wclear(wrapper->win);
 
         for (int x = 0; x < min(X_SIZE, wrapper->buffer_size); x++)
         {
